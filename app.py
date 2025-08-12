@@ -80,7 +80,6 @@ class PostmanApp:
                         except json.JSONDecodeError:
                             self.response_text.insert(tk.END, "Error: Invalid JSON in request body.\n")
                             return
-                            return
                     else:
                         response = requests.post(full_url)
                 break # If successful, break the loop
