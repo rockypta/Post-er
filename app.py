@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import requests
 import json
 
@@ -8,27 +8,46 @@ class PostmanApp:
         self.root = root
         self.root.title("Gemini Postman")
 
-        # URL
-        ttk.Label(self.root, text="URL:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.url_entry = ttk.Entry(self.root, width=80)
-        self.url_entry.grid(row=0, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
+        # Configure ttk styles for white background
+        style = ttk.Style()
+        style.configure("TLabel", background="white")
+        style.configure("TCombobox", fieldbackground="white", background="white", selectbackground="white", selectforeground="black")
+        style.map("TCombobox", fieldbackground=[("readonly", "white")])
+        style.configure("TEntry", fieldbackground="white")
+        style.map("TEntry", fieldbackground=[("readonly", "white")])
 
         # Method
         self.method_var = tk.StringVar(value="GET")
-        ttk.Radiobutton(self.root, text="GET", variable=self.method_var, value="GET").grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        ttk.Radiobutton(self.root, text="POST", variable=self.method_var, value="POST").grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        self.method_combobox = ttk.Combobox(self.root, textvariable=self.method_var, values=("GET", "POST"), state="readonly", width=6)
+        self.method_combobox.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.method_combobox.set("GET") # Set initial value
+
+        # URL
+        self.url_entry = ttk.Entry(self.root)
+        self.url_entry.grid(row=0, column=1, columnspan=4, padx=5, pady=5, sticky="ew")
 
         # Body for POST
         self.body_label = ttk.Label(self.root, text="Body:")
         self.body_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.body_text = tk.Text(self.root, height=10, width=80)
-        self.body_text.grid(row=2, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.body_text = tk.Text(self.root, height=10)
+        self.body_text.grid(row=2, column=1, columnspan=4, padx=5, pady=5, sticky="ew")
         self.body_text.bind("<Tab>", self._on_body_text_tab)
         self.body_text.bind("<Shift-Tab>", self._on_body_text_tab)
 
+        # File Upload
+        ttk.Label(self.root, text="File:").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.file_path_var = tk.StringVar()
+        self.file_entry = ttk.Entry(self.root, textvariable=self.file_path_var, width=60, state="readonly")
+        self.file_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        self.browse_button = ttk.Button(self.root, text="Browse", command=self.select_file)
+        self.browse_button.grid(row=3, column=2, padx=5, pady=5)
+        self.clear_file_button = ttk.Button(self.root, text="Clear", command=self.clear_file)
+        self.clear_file_button.grid(row=3, column=3, padx=5, pady=5)
+        self.file_data = None # To store the content of the selected file
+
         # Send Button
         self.send_button = ttk.Button(self.root, text="Send", command=self.send_request)
-        self.send_button.grid(row=3, column=1, pady=10)
+        self.send_button.grid(row=3, column=4, padx=5, pady=10)
         # self.send_button.bind("<Return>", lambda event: self.send_request()) # Removed to avoid duplicate binding
 
         # Bind <Return> to the root window to trigger send_request globally
@@ -36,10 +55,14 @@ class PostmanApp:
 
         # Response
         ttk.Label(self.root, text="Response:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
-        self.response_text = tk.Text(self.root, height=20, width=80)
-        self.response_text.grid(row=5, column=0, columnspan=4, padx=5, pady=5, sticky="nsew")
+        self.response_text = tk.Text(self.root, height=20)
+        self.response_text.grid(row=5, column=0, columnspan=5, padx=5, pady=5, sticky="nsew")
 
         self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_columnconfigure(2, weight=3)
+        self.root.grid_columnconfigure(3, weight=1)
+        self.root.grid_columnconfigure(4, weight=1)
+        self.root.grid_rowconfigure(2, weight=1)
         self.root.grid_rowconfigure(5, weight=1)
         
         # Set initial focus to the URL entry
@@ -51,6 +74,22 @@ class PostmanApp:
         else:
             self.send_button.focus_set()
         return "break"
+
+    def select_file(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            self.file_path_var.set(file_path)
+            try:
+                with open(file_path, 'rb') as f:
+                    self.file_data = f.read()
+            except Exception as e:
+                messagebox.showerror("File Error", f"Could not read file: {e}")
+                self.file_path_var.set("")
+                self.file_data = None
+
+    def clear_file(self):
+        self.file_path_var.set("")
+        self.file_data = None
 
     def send_request(self):
         url = self.url_entry.get()
@@ -75,16 +114,19 @@ class PostmanApp:
                 if method == "GET":
                     response = requests.get(full_url)
                 elif method == "POST":
-                    body_content = self.body_text.get(1.0, tk.END).strip()
-                    if body_content:
-                        try:
-                            body = json.loads(body_content)
-                            response = requests.post(full_url, json=body)
-                        except json.JSONDecodeError:
-                            # If not valid JSON, send as plain text
-                            response = requests.post(full_url, data=body_content)
+                    if self.file_data:
+                        response = requests.post(full_url, data=self.file_data)
                     else:
-                        response = requests.post(full_url)
+                        body_content = self.body_text.get(1.0, tk.END).strip()
+                        if body_content:
+                            try:
+                                body = json.loads(body_content)
+                                response = requests.post(full_url, json=body)
+                            except json.JSONDecodeError:
+                                # If not valid JSON, send as plain text
+                                response = requests.post(full_url, data=body_content)
+                        else:
+                            response = requests.post(full_url)
                 break # If successful, break the loop
             except requests.exceptions.MissingSchema:
                 # This means the scheme was missing, try the next one
@@ -114,5 +156,6 @@ class PostmanApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    root.configure(bg="white")
     app = PostmanApp(root)
     root.mainloop()
