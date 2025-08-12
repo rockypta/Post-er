@@ -29,7 +29,10 @@ class PostmanApp:
         # Send Button
         self.send_button = ttk.Button(self.root, text="Send", command=self.send_request)
         self.send_button.grid(row=3, column=1, pady=10)
-        self.send_button.bind("<Return>", lambda event: self.send_request())
+        # self.send_button.bind("<Return>", lambda event: self.send_request()) # Removed to avoid duplicate binding
+
+        # Bind <Return> to the root window to trigger send_request globally
+        self.root.bind("<Return>", lambda event: self.send_request())
 
         # Response
         ttk.Label(self.root, text="Response:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
