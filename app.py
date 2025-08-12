@@ -23,10 +23,13 @@ class PostmanApp:
         self.body_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.body_text = tk.Text(self.root, height=10, width=80)
         self.body_text.grid(row=2, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.body_text.bind("<Tab>", self._on_body_text_tab)
+        self.body_text.bind("<Shift-Tab>", self._on_body_text_tab)
 
         # Send Button
         self.send_button = ttk.Button(self.root, text="Send", command=self.send_request)
         self.send_button.grid(row=3, column=1, pady=10)
+        self.send_button.bind("<Return>", lambda event: self.send_request())
 
         # Response
         ttk.Label(self.root, text="Response:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
@@ -36,6 +39,12 @@ class PostmanApp:
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(5, weight=1)
 
+    def _on_body_text_tab(self, event):
+        if event.state & 0x1:  # Check for Shift key (state 0x1)
+            self.url_entry.focus_set()
+        else:
+            self.send_button.focus_set()
+        return "break"
 
     def send_request(self):
         url = self.url_entry.get()
