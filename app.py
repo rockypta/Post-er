@@ -19,7 +19,7 @@ class PostmanApp:
         ttk.Radiobutton(self.root, text="POST", variable=self.method_var, value="POST").grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
         # Body for POST
-        self.body_label = ttk.Label(self.root, text="Body (JSON):")
+        self.body_label = ttk.Label(self.root, text="Body:")
         self.body_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.body_text = tk.Text(self.root, height=10, width=80)
         self.body_text.grid(row=2, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
@@ -81,8 +81,8 @@ class PostmanApp:
                             body = json.loads(body_content)
                             response = requests.post(full_url, json=body)
                         except json.JSONDecodeError:
-                            self.response_text.insert(tk.END, "Error: Invalid JSON in request body.\n")
-                            return
+                            # If not valid JSON, send as plain text
+                            response = requests.post(full_url, data=body_content)
                     else:
                         response = requests.post(full_url)
                 break # If successful, break the loop
