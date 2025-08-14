@@ -26,6 +26,12 @@ class PostmanApp:
         self.url_entry = ttk.Entry(self.root)
         self.url_entry.grid(row=0, column=1, columnspan=4, padx=5, pady=5, sticky="ew")
 
+        # Request Headers
+        self.headers_label = ttk.Label(self.root, text="Headers:")
+        self.headers_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.headers_text = tk.Text(self.root, height=5)
+        self.headers_text.grid(row=1, column=1, columnspan=4, padx=5, pady=5, sticky="ew")
+
         # Body for POST
         self.body_label = ttk.Label(self.root, text="Body:")
         self.body_label.grid(row=2, column=0, padx=5, pady=5, sticky="w")
@@ -118,6 +124,13 @@ class PostmanApp:
             self.response_text.insert(tk.END, "Error: URL cannot be empty.\n")
             return
 
+        headers = {}
+        header_lines = self.headers_text.get(1.0, tk.END).strip().split('\n')
+        for line in header_lines:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                headers[key.strip()] = value.strip()
+
         schemes_to_try = []
         if not url.startswith("http://") and not url.startswith("https://"):
             schemes_to_try = ["http://", "https://"]
@@ -129,7 +142,7 @@ class PostmanApp:
         for scheme in ["", *schemes_to_try]:
             try:
                 full_url = scheme + url
-                kwargs = {}
+                kwargs = {'headers': headers}
                 if cert_path:
                     kwargs['cert'] = cert_path
                     kwargs['verify'] = True # Ensure verification
@@ -171,7 +184,7 @@ class PostmanApp:
             return
 
         self.response_text.insert(tk.END, f"Status Code: {response.status_code}\n")
-        self.response_text.insert(tk.END, "Headers:\n")
+        self.response_text.insert(tk.END, "Response Headers:\n")
         for key, value in response.headers.items():
             self.response_text.insert(tk.END, f"  {key}: {value}\n")
         self.response_text.insert(tk.END, "\nBody:\n")
