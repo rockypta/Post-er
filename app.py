@@ -45,25 +45,34 @@ class PostmanApp:
         self.clear_file_button.grid(row=3, column=3, padx=5, pady=5)
         self.file_data = None # To store the content of the selected file
 
+        # Certificate
+        ttk.Label(self.root, text="Cert:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        self.cert_path_var = tk.StringVar()
+        self.cert_entry = ttk.Entry(self.root, textvariable=self.cert_path_var, width=60, state="readonly")
+        self.cert_entry.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+        self.browse_cert_button = ttk.Button(self.root, text="Browse", command=self.select_cert)
+        self.browse_cert_button.grid(row=4, column=2, padx=5, pady=5)
+        self.clear_cert_button = ttk.Button(self.root, text="Clear", command=self.clear_cert)
+        self.clear_cert_button.grid(row=4, column=3, padx=5, pady=5)
+
         # Send Button
         self.send_button = ttk.Button(self.root, text="Send", command=self.send_request)
-        self.send_button.grid(row=3, column=4, padx=5, pady=10)
-        # self.send_button.bind("<Return>", lambda event: self.send_request()) # Removed to avoid duplicate binding
+        self.send_button.grid(row=5, column=4, padx=5, pady=10)
 
         # Bind <Return> to the root window to trigger send_request globally
         self.root.bind("<Return>", lambda event: self.send_request())
 
         # Response
-        ttk.Label(self.root, text="Response:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(self.root, text="Response:").grid(row=6, column=0, padx=5, pady=5, sticky="w")
         self.response_text = tk.Text(self.root, height=20)
-        self.response_text.grid(row=5, column=0, columnspan=5, padx=5, pady=5, sticky="nsew")
+        self.response_text.grid(row=7, column=0, columnspan=5, padx=5, pady=5, sticky="nsew")
 
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_columnconfigure(2, weight=3)
         self.root.grid_columnconfigure(3, weight=1)
         self.root.grid_columnconfigure(4, weight=1)
         self.root.grid_rowconfigure(2, weight=1)
-        self.root.grid_rowconfigure(5, weight=1)
+        self.root.grid_rowconfigure(7, weight=1)
         
         # Set initial focus to the URL entry
         self.url_entry.focus_set()
@@ -91,9 +100,18 @@ class PostmanApp:
         self.file_path_var.set("")
         self.file_data = None
 
+    def select_cert(self):
+        cert_path = filedialog.askopenfilename()
+        if cert_path:
+            self.cert_path_var.set(cert_path)
+
+    def clear_cert(self):
+        self.cert_path_var.set("")
+
     def send_request(self):
         url = self.url_entry.get()
         method = self.method_var.get()
+        cert_path = self.cert_path_var.get()
         self.response_text.delete(1.0, tk.END)
 
         if not url:
@@ -111,30 +129,39 @@ class PostmanApp:
         for scheme in ["", *schemes_to_try]:
             try:
                 full_url = scheme + url
+                kwargs = {}
+                if cert_path:
+                    kwargs['cert'] = cert_path
+                    kwargs['verify'] = True # Ensure verification
+
                 if method == "GET":
-                    response = requests.get(full_url)
+                    response = requests.get(full_url, **kwargs)
                 elif method == "POST":
                     if self.file_data:
-                        response = requests.post(full_url, data=self.file_data)
+                        response = requests.post(full_url, data=self.file_data, **kwargs)
                     else:
                         body_content = self.body_text.get(1.0, tk.END).strip()
                         if body_content:
                             try:
                                 body = json.loads(body_content)
-                                response = requests.post(full_url, json=body)
+                                response = requests.post(full_url, json=body, **kwargs)
                             except json.JSONDecodeError:
                                 # If not valid JSON, send as plain text
-                                response = requests.post(full_url, data=body_content)
+                                response = requests.post(full_url, data=body_content, **kwargs)
                         else:
-                            response = requests.post(full_url)
+                            response = requests.post(full_url, **kwargs)
                 break # If successful, break the loop
             except requests.exceptions.MissingSchema:
                 # This means the scheme was missing, try the next one
                 error_message = f"Error: Missing URL scheme. Tried {full_url}\n"
                 continue
+            except requests.exceptions.SSLError as e:
+                error_message = f"SSL Error: {e}\n"
+                self.response_text.insert(tk.END, error_message)
+                return
             except requests.exceptions.RequestException as e:
                 error_message = f"Request Error: {e}\n"
-                if scheme == schemes_to_try[-1] or not schemes_to_try: # Last attempt or no schemes to try
+                if schemes_to_try and (scheme == schemes_to_try[-1] or not schemes_to_try): # Last attempt or no schemes to try
                     self.response_text.insert(tk.END, error_message)
                     return
                 continue
