@@ -6,7 +6,7 @@ import json
 class PostmanApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Gemini Postman")
+        self.root.title("Post-er")
 
         # Configure ttk styles for white background
         style = ttk.Style()
