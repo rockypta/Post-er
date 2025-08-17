@@ -31,6 +31,7 @@ class PostmanApp:
         self.headers_label.grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.headers_text = tk.Text(self.root, height=5)
         self.headers_text.grid(row=1, column=1, columnspan=4, padx=5, pady=5, sticky="ew")
+        self.headers_text.bind("<Tab>", self._on_header_text_tab)
 
         # Body for POST
         self.body_label = ttk.Label(self.root, text="Body:")
@@ -66,7 +67,7 @@ class PostmanApp:
         self.send_button.grid(row=5, column=4, padx=5, pady=10)
 
         # Bind <Return> to the root window to trigger send_request globally
-        self.root.bind("<Return>", lambda event: self.send_request())
+        self.root.bind("<Return>", self.send_request_wrapper)
 
         # Response
         ttk.Label(self.root, text="Response:").grid(row=6, column=0, padx=5, pady=5, sticky="w")
@@ -82,6 +83,10 @@ class PostmanApp:
         
         # Set initial focus to the URL entry
         self.url_entry.focus_set()
+
+    def _on_header_text_tab(self, event):
+        self.body_text.focus_set()
+        return "break"
 
     def _on_body_text_tab(self, event):
         if event.state & 0x1:  # Check for Shift key (state 0x1)
@@ -113,6 +118,11 @@ class PostmanApp:
 
     def clear_cert(self):
         self.cert_path_var.set("")
+
+    def send_request_wrapper(self, event=None):
+        focused_widget = self.root.focus_get()
+        if focused_widget != self.headers_text and focused_widget != self.body_text:
+            self.send_request()
 
     def send_request(self):
         url = self.url_entry.get()
