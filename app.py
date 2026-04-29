@@ -87,22 +87,32 @@ class PostmanApp:
         self.clear_cert_button = ttk.Button(self.root, text="Clear", command=self.clear_cert, width=10)
         self.clear_cert_button.grid(row=4, column=5, padx=2, pady=2, sticky="e")
 
+        # CA Certificate
+        ttk.Label(self.root, text="CA Cert:").grid(row=5, column=0, padx=2, pady=2, sticky="w")
+        self.ca_cert_path_var = tk.StringVar()
+        self.ca_cert_entry = ttk.Entry(self.root, textvariable=self.ca_cert_path_var, state="readonly")
+        self.ca_cert_entry.grid(row=5, column=1, columnspan=3, padx=2, pady=2, sticky="ew")
+        self.browse_ca_cert_button = ttk.Button(self.root, text="Browse", command=self.select_ca_cert, width=10)
+        self.browse_ca_cert_button.grid(row=5, column=4, padx=2, pady=2, sticky="e")
+        self.clear_ca_cert_button = ttk.Button(self.root, text="Clear", command=self.clear_ca_cert, width=10)
+        self.clear_ca_cert_button.grid(row=5, column=5, padx=2, pady=2, sticky="e")
+
         # Bind <Return> to the root window to trigger send_request globally
         self.root.bind("<Return>", self.send_request_wrapper)
 
         # Response
-        ttk.Label(self.root, text="Response:").grid(row=5, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(self.root, text="Response:").grid(row=6, column=0, padx=5, pady=5, sticky="w")
         self.status_var = tk.StringVar(value="Status: N/A")
         self.status_label = ttk.Label(self.root, textvariable=self.status_var)
-        self.status_label.grid(row=5, column=1, padx=5, pady=5, sticky="w") # columnspan reduced
+        self.status_label.grid(row=6, column=1, padx=5, pady=5, sticky="w") # columnspan reduced
         self.data_info_var = tk.StringVar(value="Sent: 0B, Recv: 0B")
         self.data_info_label = ttk.Label(self.root, textvariable=self.data_info_var)
-        self.data_info_label.grid(row=5, column=2, columnspan=2, padx=5, pady=5, sticky="w") # Adjusted column and columnspan
+        self.data_info_label.grid(row=6, column=2, columnspan=2, padx=5, pady=5, sticky="w") # Adjusted column and columnspan
         self.download_speed_var = tk.StringVar(value="Speed: N/A")
         self.download_speed_label = ttk.Label(self.root, textvariable=self.download_speed_var)
-        self.download_speed_label.grid(row=5, column=4, columnspan=2, padx=5, pady=5, sticky="e") # New label
+        self.download_speed_label.grid(row=6, column=4, columnspan=2, padx=5, pady=5, sticky="e") # New label
         self.response_text = tk.Text(self.root, height=20, background="#4A6572", foreground="white", insertbackground="white")
-        self.response_text.grid(row=6, column=0, columnspan=6, padx=5, pady=5, sticky="nsew")
+        self.response_text.grid(row=7, column=0, columnspan=6, padx=5, pady=5, sticky="nsew")
 
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_columnconfigure(2, weight=1)
@@ -111,7 +121,7 @@ class PostmanApp:
         self.root.grid_columnconfigure(5, weight=0) # Clear button column, no weight
         self.root.grid_rowconfigure(1, weight=1) # New: for headers/body buttons and content frame
         self.root.grid_rowconfigure(2, weight=1) # New: for headers/body buttons and content frame
-        self.root.grid_rowconfigure(6, weight=1) # Response text area
+        self.root.grid_rowconfigure(7, weight=1) # Response text area
         
         self.request_thread = None
         self.cancel_flag = threading.Event()
@@ -165,6 +175,14 @@ class PostmanApp:
 
     def clear_cert(self):
         self.cert_path_var.set("")
+
+    def select_ca_cert(self):
+        ca_cert_path = filedialog.askopenfilename()
+        if ca_cert_path:
+            self.ca_cert_path_var.set(ca_cert_path)
+
+    def clear_ca_cert(self):
+        self.ca_cert_path_var.set("")
 
     def _format_bytes(self, bytes_val):
         if bytes_val < 1024:
@@ -256,9 +274,14 @@ class PostmanApp:
             try:
                 full_url = scheme + url
                 kwargs = {'headers': headers, 'stream': True} # Use stream for potential large file downloads
+                ca_cert_path = self.ca_cert_path_var.get()
                 if cert_path:
                     kwargs['cert'] = cert_path
-                    kwargs['verify'] = True # Ensure verification
+                
+                if ca_cert_path:
+                    kwargs['verify'] = ca_cert_path
+                else:
+                    kwargs['verify'] = True # Default to True if no CA cert is provided
 
                 if method == "GET":
                     response = requests.get(full_url, **kwargs)
