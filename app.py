@@ -2,6 +2,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import requests
 import json
+import os
+import time
+import threading
 
 class PostmanApp:
     def __init__(self, root):
@@ -25,7 +28,7 @@ class PostmanApp:
         # Method
         self.method_var = tk.StringVar(value="GET")
         self.method_combobox = ttk.Combobox(self.root, textvariable=self.method_var, values=("GET", "POST"), state="readonly", width=6)
-        self.method_combobox.grid(row=0, column=0, padx=5, pady=2, sticky="w") # Reduced padding
+        self.method_combobox.grid(row=0, column=0, padx=2, pady=2, sticky="w") # Reduced padding
         self.method_combobox.set("GET") # Set initial value
 
         # URL
@@ -44,16 +47,16 @@ class PostmanApp:
 
         # Content Frame for Headers and Body
         self.content_frame = ttk.Frame(self.root, style="TFrame")
-        self.content_frame.grid(row=1, column=1, rowspan=2, columnspan=5, padx=5, pady=5, sticky="nsew")
+        self.content_frame.grid(row=1, column=1, rowspan=2, columnspan=5, padx=2, pady=2, sticky="nsew")
 
         # Request Headers
         self.headers_text = tk.Text(self.content_frame, height=10, background="#4A6572", foreground="white", insertbackground="white")
-        self.headers_text.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.headers_text.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
         self.headers_text.bind("<Tab>", self._on_header_text_tab)
 
         # Body for POST
         self.body_text = tk.Text(self.content_frame, height=10, background="#4A6572", foreground="white", insertbackground="white")
-        self.body_text.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+        self.body_text.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
         self.body_text.bind("<Tab>", self._on_body_text_tab)
         self.body_text.bind("<Shift-Tab>", self._on_body_text_tab)
 
@@ -64,25 +67,25 @@ class PostmanApp:
         self.show_headers()
 
         # File Upload
-        ttk.Label(self.root, text="File:").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(self.root, text="File:").grid(row=3, column=0, padx=2, pady=2, sticky="w")
         self.file_path_var = tk.StringVar()
         self.file_entry = ttk.Entry(self.root, textvariable=self.file_path_var, state="readonly")
-        self.file_entry.grid(row=3, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.file_entry.grid(row=3, column=1, columnspan=3, padx=2, pady=2, sticky="ew")
         self.browse_button = ttk.Button(self.root, text="Browse", command=self.select_file, width=10)
-        self.browse_button.grid(row=3, column=4, padx=5, pady=5, sticky="e")
+        self.browse_button.grid(row=3, column=4, padx=2, pady=2, sticky="e")
         self.clear_file_button = ttk.Button(self.root, text="Clear", command=self.clear_file, width=10)
-        self.clear_file_button.grid(row=3, column=5, padx=5, pady=5, sticky="e")
+        self.clear_file_button.grid(row=3, column=5, padx=2, pady=2, sticky="e")
         self.file_data = None # To store the content of the selected file
 
         # Certificate
-        ttk.Label(self.root, text="Cert:").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(self.root, text="Cert:").grid(row=4, column=0, padx=2, pady=2, sticky="w")
         self.cert_path_var = tk.StringVar()
         self.cert_entry = ttk.Entry(self.root, textvariable=self.cert_path_var, state="readonly")
-        self.cert_entry.grid(row=4, column=1, columnspan=3, padx=5, pady=5, sticky="ew")
+        self.cert_entry.grid(row=4, column=1, columnspan=3, padx=2, pady=2, sticky="ew")
         self.browse_cert_button = ttk.Button(self.root, text="Browse", command=self.select_cert, width=10)
-        self.browse_cert_button.grid(row=4, column=4, padx=5, pady=5, sticky="e")
+        self.browse_cert_button.grid(row=4, column=4, padx=2, pady=2, sticky="e")
         self.clear_cert_button = ttk.Button(self.root, text="Clear", command=self.clear_cert, width=10)
-        self.clear_cert_button.grid(row=4, column=5, padx=5, pady=5, sticky="e")
+        self.clear_cert_button.grid(row=4, column=5, padx=2, pady=2, sticky="e")
 
         # Bind <Return> to the root window to trigger send_request globally
         self.root.bind("<Return>", self.send_request_wrapper)
@@ -91,21 +94,27 @@ class PostmanApp:
         ttk.Label(self.root, text="Response:").grid(row=5, column=0, padx=5, pady=5, sticky="w")
         self.status_var = tk.StringVar(value="Status: N/A")
         self.status_label = ttk.Label(self.root, textvariable=self.status_var)
-        self.status_label.grid(row=5, column=1, columnspan=2, padx=5, pady=5, sticky="w")
+        self.status_label.grid(row=5, column=1, padx=5, pady=5, sticky="w") # columnspan reduced
         self.data_info_var = tk.StringVar(value="Sent: 0B, Recv: 0B")
         self.data_info_label = ttk.Label(self.root, textvariable=self.data_info_var)
-        self.data_info_label.grid(row=5, column=3, columnspan=3, padx=5, pady=5, sticky="e")
+        self.data_info_label.grid(row=5, column=2, columnspan=2, padx=5, pady=5, sticky="w") # Adjusted column and columnspan
+        self.download_speed_var = tk.StringVar(value="Speed: N/A")
+        self.download_speed_label = ttk.Label(self.root, textvariable=self.download_speed_var)
+        self.download_speed_label.grid(row=5, column=4, columnspan=2, padx=5, pady=5, sticky="e") # New label
         self.response_text = tk.Text(self.root, height=20, background="#4A6572", foreground="white", insertbackground="white")
         self.response_text.grid(row=6, column=0, columnspan=6, padx=5, pady=5, sticky="nsew")
 
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_columnconfigure(2, weight=1)
         self.root.grid_columnconfigure(3, weight=1)
-        self.root.grid_columnconfigure(4, weight=1)
-        self.root.grid_columnconfigure(5, weight=0) # Send button column, no weight
+        self.root.grid_columnconfigure(4, weight=0) # Browse button column, no weight
+        self.root.grid_columnconfigure(5, weight=0) # Clear button column, no weight
         self.root.grid_rowconfigure(1, weight=1) # New: for headers/body buttons and content frame
         self.root.grid_rowconfigure(2, weight=1) # New: for headers/body buttons and content frame
         self.root.grid_rowconfigure(6, weight=1) # Response text area
+        
+        self.request_thread = None
+        self.cancel_flag = threading.Event()
         
         # Set initial focus to the URL entry
         self.url_entry.focus_set()
@@ -157,23 +166,62 @@ class PostmanApp:
     def clear_cert(self):
         self.cert_path_var.set("")
 
+    def _format_bytes(self, bytes_val):
+        if bytes_val < 1024:
+            return f"{bytes_val}B"
+        elif bytes_val < 1024 * 1024:
+            return f"{bytes_val / 1024:.2f}KB"
+        elif bytes_val < 1024 * 1024 * 1024:
+            return f"{bytes_val / (1024 * 1024):.2f}MB"
+        else:
+            return f"{bytes_val / (1024 * 1024 * 1024):.2f}GB"
+
     def send_request_wrapper(self, event=None):
         focused_widget = self.root.focus_get()
         if focused_widget != self.headers_text and focused_widget != self.body_text:
             self.send_request()
 
     def send_request(self):
+        if self.request_thread and self.request_thread.is_alive():
+            # If a request is already running, this click is to cancel it
+            self.cancel_request()
+        else:
+            # Start a new request in a separate thread
+            self.cancel_flag.clear() # Clear any previous cancellation flag
+            self.send_button.config(text="Cancel", command=self.cancel_request)
+            self.request_thread = threading.Thread(target=self._execute_request)
+            self.request_thread.start()
+
+    def cancel_request(self):
+        self.cancel_flag.set() # Signal the worker thread to stop
+        self.response_text.insert(tk.END, "\nRequest cancelled by user.\n")
+        self.status_var.set("Status: Cancelled")
+        self.download_speed_var.set("Speed: N/A")
+        self.data_info_var.set("Sent: 0B, Recv: 0B")
+        # Reset button immediately, as thread might take a moment to actually stop
+        self._request_finished() 
+
+    def _request_finished(self):
+        # This method is called when the request thread finishes or is cancelled
+        self.send_button.config(text="Send", command=self.send_request)
+        self.request_thread = None # Clear the thread reference
+
+    def _execute_request(self):
         url = self.url_entry.get()
         method = self.method_var.get()
         cert_path = self.cert_path_var.get()
-        self.response_text.delete(1.0, tk.END)
-        self.status_var.set("Status: Sending...")
-        self.data_info_var.set("Sent: 0B, Recv: 0B")
-        self.root.update_idletasks() # Update UI to show "Sending..."
+        
+        # Clear response area and reset status/speed in the main thread
+        self.root.after(0, lambda: self.response_text.delete(1.0, tk.END))
+        self.root.after(0, lambda: self.status_var.set("Status: Sending..."))
+        self.root.after(0, lambda: self.data_info_var.set("Sent: 0B, Recv: 0B"))
+        self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+        self.root.after(0, lambda: self.root.update_idletasks())
 
         if not url:
-            self.response_text.insert(tk.END, "Error: URL cannot be empty.\n")
-            self.status_var.set("Status: Error")
+            self.root.after(0, lambda: self.response_text.insert(tk.END, "Error: URL cannot be empty.\n"))
+            self.root.after(0, lambda: self.status_var.set("Status: Error"))
+            self.root.after(0, self._request_finished)
             return
 
         headers = {}
@@ -182,6 +230,10 @@ class PostmanApp:
             if ':' in line:
                 key, value = line.split(':', 1)
                 headers[key.strip()] = value.strip()
+        
+        # Add a default User-Agent if not already provided, to mimic browser behavior
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
 
         request_body_size = 0
         request_header_size = sum(len(k) + len(v) + 4 for k, v in headers.items()) + 2 # +4 for ': ' and '\r\n', +2 for final '\r\n'
@@ -195,9 +247,15 @@ class PostmanApp:
         error_message = ""
 
         for scheme in ["", *schemes_to_try]:
+            if self.cancel_flag.is_set(): # Check for cancellation before making request
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "\nRequest aborted before sending.\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Aborted"))
+                self.root.after(0, self._request_finished)
+                return
+
             try:
                 full_url = scheme + url
-                kwargs = {'headers': headers}
+                kwargs = {'headers': headers, 'stream': True} # Use stream for potential large file downloads
                 if cert_path:
                     kwargs['cert'] = cert_path
                     kwargs['verify'] = True # Ensure verification
@@ -227,38 +285,124 @@ class PostmanApp:
                 continue
             except requests.exceptions.SSLError as e:
                 error_message = f"SSL Error: {e}\n"
-                self.response_text.insert(tk.END, error_message)
-                self.status_var.set("Status: SSL Error")
+                self.root.after(0, lambda: self.response_text.insert(tk.END, error_message))
+                self.root.after(0, lambda: self.status_var.set("Status: SSL Error"))
+                self.root.after(0, self._request_finished)
                 return
             except requests.exceptions.RequestException as e:
                 error_message = f"Request Error: {e}\n"
                 if schemes_to_try and (scheme == schemes_to_try[-1] or not schemes_to_try):
-                    self.response_text.insert(tk.END, error_message)
-                    self.status_var.set("Status: Request Error")
+                    self.root.after(0, lambda: self.response_text.insert(tk.END, error_message))
+                    self.root.after(0, lambda: self.status_var.set("Status: Request Error"))
+                    self.root.after(0, self._request_finished)
                     return
                 continue
         
         if response is None:
-            self.response_text.insert(tk.END, error_message if error_message else "Unknown error occurred.\n")
-            self.status_var.set("Status: Error")
+            self.root.after(0, lambda: self.response_text.insert(tk.END, error_message if error_message else "Unknown error occurred.\n"))
+            self.root.after(0, lambda: self.status_var.set("Status: Error"))
+            self.root.after(0, self._request_finished)
             return
 
-        # Calculate response size
+        # --- File Download Logic ---
+        is_file_download = False
+        filename = None
+
+        content_disposition = response.headers.get('Content-Disposition')
+        if content_disposition and 'attachment' in content_disposition:
+            # Try to extract filename from Content-Disposition
+            try:
+                filename = content_disposition.split('filename=')[1].strip('"\'')
+                is_file_download = True
+            except IndexError:
+                pass # Fallback to content-type or URL
+
+        if not is_file_download:
+            content_type = response.headers.get('Content-Type', '').lower()
+            # Heuristic: if not text/html or application/json, assume it's a file
+            if 'text/html' not in content_type and 'application/json' not in content_type and 'text/plain' not in content_type:
+                is_file_download = True
+                # Generate filename from URL if not already found
+                if not filename:
+                    filename = os.path.basename(url.split('?')[0]) # Remove query params
+                    if not filename or '.' not in filename: # If no clear filename, use a generic one
+                        import datetime # Import datetime here as it's only needed for this specific case
+                        filename = "downloaded_file" + ('.' + content_type.split('/')[-1] if '/' in content_type else '')
+                        if filename == "downloaded_file": # Still generic, add a timestamp
+                            filename = f"downloaded_file_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        if is_file_download and filename:
+            download_dir = filedialog.askdirectory(initialdir=os.getcwd(), title="Select folder to save file")
+            if not download_dir: # User cancelled the dialog
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "File download cancelled by user.\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Download Cancelled"))
+                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed
+                response.close()
+                self.root.after(0, self._request_finished)
+                return
+
+            try:
+                download_path = os.path.join(download_dir, filename)
+                total_size = int(response.headers.get('content-length', 0))
+                bytes_received = 0
+                start_time = time.time()
+
+                with open(download_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if self.cancel_flag.is_set(): # Check for cancellation during download
+                            self.root.after(0, lambda: self.response_text.insert(tk.END, "\nFile download cancelled.\n"))
+                            self.root.after(0, lambda: self.status_var.set("Status: Download Cancelled"))
+                            self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+                            response.close()
+                            self.root.after(0, self._request_finished)
+                            return
+                        f.write(chunk)
+                        bytes_received += len(chunk)
+                        
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > 0:
+                            speed = bytes_received / elapsed_time # bytes per second
+                            self.root.after(0, lambda s=speed: self.download_speed_var.set(f"Speed: {self._format_bytes(s)}/s"))
+                        
+                        # Update Recv count
+                        self.root.after(0, lambda br=bytes_received: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(br)}"))
+                        # self.root.after(0, lambda: self.root.update_idletasks()) # update_idletasks is expensive, only call if necessary
+
+                self.root.after(0, lambda: self.response_text.insert(tk.END, f"File downloaded successfully to: {download_path}\n"))
+                self.root.after(0, lambda: self.status_var.set(f"Status: Downloaded ({response.status_code})"))
+                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed after completion
+            except Exception as e:
+                self.root.after(0, lambda e=e: self.response_text.insert(tk.END, f"Error downloading file: {e}\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Download Error"))
+                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed on error
+            finally:
+                response.close() # Close the stream
+            
+            # Final update for data info after download
+            response_header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 2
+            response_body_size = os.path.getsize(download_path) if os.path.exists(download_path) else 0
+            self.root.after(0, lambda rbs=response_body_size: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(rbs)}"))
+            self.root.after(0, self._request_finished)
+            return # Exit after file download
+
+        # Calculate response size for non-file responses
         response_header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 2
         response_body_size = len(response.content)
         
-        self.status_var.set(f"Status: {response.status_code}")
-        self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {response_header_size + response_body_size}B")
+        self.root.after(0, lambda: self.status_var.set(f"Status: {response.status_code}"))
+        self.root.after(0, lambda: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(response_body_size)}"))
+        self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed for non-file responses
 
-        self.response_text.insert(tk.END, f"Status Code: {response.status_code}\n")
-        self.response_text.insert(tk.END, "Response Headers:\n")
-        for key, value in response.headers.items():
-            self.response_text.insert(tk.END, f"  {key}: {value}\n")
-        self.response_text.insert(tk.END, "\nBody:\n")
+        self.root.after(0, lambda: self.response_text.insert(tk.END, f"Status Code: {response.status_code}\n"))
+        self.root.after(0, lambda: self.response_text.insert(tk.END, "Response Headers:\n"))
+        self.root.after(0, lambda: [self.response_text.insert(tk.END, f"  {key}: {value}\n") for key, value in response.headers.items()])
+        self.root.after(0, lambda: self.response_text.insert(tk.END, "\nBody:\n"))
         try:
-            self.response_text.insert(tk.END, json.dumps(response.json(), indent=2))
+            self.root.after(0, lambda: self.response_text.insert(tk.END, json.dumps(response.json(), indent=2)))
         except json.JSONDecodeError:
-            self.response_text.insert(tk.END, response.text)
+            self.root.after(0, lambda: self.response_text.insert(tk.END, response.text))
+        finally:
+            self.root.after(0, self._request_finished)
 
 
 if __name__ == "__main__":
