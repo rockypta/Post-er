@@ -5,6 +5,9 @@ import json
 import os
 import time
 import threading
+import concurrent.futures # For ThreadPoolExecutor
+import tempfile # For temporary files
+import math # For calculating part sizes
 
 class PostmanApp:
     def __init__(self, root):
@@ -128,6 +131,8 @@ class PostmanApp:
         
         # Set initial focus to the URL entry
         self.url_entry.focus_set()
+
+    NUM_DOWNLOAD_PARTS = 8 # Number of concurrent parts for multipart download
 
     def show_headers(self):
         self.headers_text.grid()
@@ -426,6 +431,311 @@ class PostmanApp:
             self.root.after(0, lambda: self.response_text.insert(tk.END, response.text))
         finally:
             self.root.after(0, self._request_finished)
+
+
+    def _download_file_multipart(self, url, headers, download_path, total_size, request_header_size, request_body_size, verify_ssl):
+        self.root.after(0, lambda: self.status_var.set("Status: Downloading (Multipart)..."))
+        self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+
+        part_size = math.ceil(total_size / self.NUM_DOWNLOAD_PARTS)
+        temp_files = []
+        bytes_received_total = 0
+        start_time = time.time()
+        
+        # Use a lock for updating shared progress variables
+        progress_lock = threading.Lock()
+
+        def download_part(part_num, start_byte, end_byte):
+            nonlocal bytes_received_total
+            if self.cancel_flag.is_set():
+                return False # Indicate cancellation
+
+            part_headers = headers.copy()
+            part_headers['Range'] = f'bytes={start_byte}-{end_byte}'
+            
+            temp_file_path = f"{download_path}.part{part_num:03d}"
+            temp_files.append(temp_file_path)
+
+            try:
+                part_response = requests.get(url, headers=part_headers, stream=True, verify=verify_ssl)
+                part_response.raise_for_status() # Raise an exception for bad status codes
+
+                bytes_received_part = 0
+                with open(temp_file_path, 'wb') as f:
+                    for chunk in part_response.iter_content(chunk_size=8192):
+                        if self.cancel_flag.is_set():
+                            part_response.close()
+                            return False # Indicate cancellation
+                        f.write(chunk)
+                        bytes_received_part += len(chunk)
+                        
+                        with progress_lock:
+                            bytes_received_total += len(chunk)
+                            elapsed_time = time.time() - start_time
+                            if elapsed_time > 0:
+                                speed = bytes_received_total / elapsed_time
+                                self.root.after(0, lambda s=speed: self.download_speed_var.set(f"Speed: {self._format_bytes(s)}/s"))
+                            self.root.after(0, lambda br=bytes_received_total: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(br)}"))
+                part_response.close()
+                return True # Indicate success
+            except requests.exceptions.RequestException as e:
+                self.root.after(0, lambda e=e: self.response_text.insert(tk.END, f"\nError downloading part {part_num}: {e}\n"))
+                # Signal cancellation for other threads if one fails
+                self.cancel_flag.set()
+                return False
+            except Exception as e:
+                self.root.after(0, lambda e=e: self.response_text.insert(tk.END, f"\nUnexpected error downloading part {part_num}: {e}\n"))
+                self.cancel_flag.set()
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.NUM_DOWNLOAD_PARTS) as executor:
+            futures = []
+            for i in range(self.NUM_DOWNLOAD_PARTS):
+                start_byte = i * part_size
+                end_byte = min(total_size - 1, start_byte + part_size - 1)
+                if start_byte > end_byte: # Handle cases where total_size is smaller than NUM_DOWNLOAD_PARTS
+                    break
+                futures.append(executor.submit(download_part, i, start_byte, end_byte))
+            
+            # Wait for all parts to complete or for cancellation
+            all_parts_successful = True
+            for future in concurrent.futures.as_completed(futures):
+                if not future.result(): # If any part failed or was cancelled
+                    all_parts_successful = False
+                    break
+            
+            if self.cancel_flag.is_set():
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "\nFile download cancelled.\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Download Cancelled"))
+                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+                all_parts_successful = False # Ensure cleanup happens
+
+        if not all_parts_successful:
+            # Clean up any partially downloaded temp files
+            for tf in temp_files:
+                if os.path.exists(tf):
+                    os.remove(tf)
+            return False
+
+        # Merge parts
+        try:
+            with open(download_path, 'wb') as outfile:
+                for i in range(len(futures)): # Iterate based on number of parts submitted
+                    part_file = f"{download_path}.part{i:03d}"
+                    if os.path.exists(part_file):
+                        with open(part_file, 'rb') as infile:
+                            outfile.write(infile.read())
+                        os.remove(part_file) # Clean up temp file
+            self.root.after(0, lambda: self.response_text.insert(tk.END, f"File downloaded successfully to: {download_path}\n"))
+            self.root.after(0, lambda: self.status_var.set(f"Status: Downloaded (Multipart)"))
+            self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+            return True
+        except Exception as e:
+            self.root.after(0, lambda e=e: self.response_text.insert(tk.END, f"Error merging file parts: {e}\n"))
+            self.root.after(0, lambda: self.status_var.set("Status: Merge Error"))
+            self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+            return False
+
+    def _execute_request(self):
+        url = self.url_entry.get()
+        method = self.method_var.get()
+        cert_path = self.cert_path_var.get()
+        
+        # Clear response area and reset status/speed in the main thread
+        self.root.after(0, lambda: self.response_text.delete(1.0, tk.END))
+        self.root.after(0, lambda: self.status_var.set("Status: Sending..."))
+        self.root.after(0, lambda: self.data_info_var.set("Sent: 0B, Recv: 0B"))
+        self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+        self.root.after(0, lambda: self.root.update_idletasks())
+
+        if not url:
+            self.root.after(0, lambda: self.response_text.insert(tk.END, "Error: URL cannot be empty.\n"))
+            self.root.after(0, lambda: self.status_var.set("Status: Error"))
+            self.root.after(0, self._request_finished)
+            return
+
+        headers = {}
+        header_lines = self.headers_text.get(1.0, tk.END).strip().split('\n')
+        for line in header_lines:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                headers[key.strip()] = value.strip()
+        
+        # Add a default User-Agent if not already provided, to mimic browser behavior
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+
+        request_body_size = 0
+        request_header_size = sum(len(k) + len(v) + 4 for k, v in headers.items()) + 2 # +4 for ': ' and '\r\n', +2 for final '\r\n'
+
+        schemes_to_try = []
+        if not url.startswith("http://") and not url.startswith("https://"):
+            schemes_to_try = ["http://", "https://"]
+            
+        full_url = url
+        response = None
+        error_message = ""
+
+        for scheme in ["", *schemes_to_try]:
+            if self.cancel_flag.is_set(): # Check for cancellation before making request
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "\nRequest aborted before sending.\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Aborted"))
+                self.root.after(0, self._request_finished)
+                return
+
+            try:
+                full_url = scheme + url
+                kwargs = {'headers': headers, 'stream': True} # Use stream for potential large file downloads
+                ca_cert_path = self.ca_cert_path_var.get()
+                if cert_path:
+                    kwargs['cert'] = cert_path
+                
+                if ca_cert_path:
+                    kwargs['verify'] = ca_cert_path
+                else:
+                    kwargs['verify'] = True # Default to True if no CA cert is provided
+                
+                verify_ssl = kwargs['verify'] # Store the verify argument for multipart download
+
+                if method == "GET":
+                    response = requests.get(full_url, **kwargs)
+                elif method == "POST":
+                    if self.file_data:
+                        request_body_size = len(self.file_data)
+                        response = requests.post(full_url, data=self.file_data, **kwargs)
+                    else:
+                        body_content = self.body_text.get(1.0, tk.END).strip()
+                        if body_content:
+                            try:
+                                body = json.loads(body_content)
+                                request_body_size = len(json.dumps(body).encode('utf-8'))
+                                response = requests.post(full_url, json=body, **kwargs)
+                            except json.JSONDecodeError:
+                                # If not valid JSON, send as plain text
+                                request_body_size = len(body_content.encode('utf-8'))
+                                response = requests.post(full_url, data=body_content, **kwargs)
+                        else:
+                            response = requests.post(full_url, **kwargs)
+                break # If successful, break the loop
+            except requests.exceptions.MissingSchema:
+                error_message = f"Error: Missing URL scheme. Tried {full_url}\n"
+                continue
+            except requests.exceptions.SSLError as e:
+                error_message = f"SSL Error: {e}\n"
+                self.root.after(0, lambda: self.response_text.insert(tk.END, error_message))
+                self.root.after(0, lambda: self.status_var.set("Status: SSL Error"))
+                self.root.after(0, self._request_finished)
+                return
+            except requests.exceptions.RequestException as e:
+                error_message = f"Request Error: {e}\n"
+                if schemes_to_try and (scheme == schemes_to_try[-1] or not schemes_to_try):
+                    self.root.after(0, lambda: self.response_text.insert(tk.END, error_message))
+                    self.root.after(0, lambda: self.status_var.set("Status: Request Error"))
+                    self.root.after(0, self._request_finished)
+                    return
+                continue
+        
+        if response is None:
+            self.root.after(0, lambda: self.response_text.insert(tk.END, error_message if error_message else "Unknown error occurred.\n"))
+            self.root.after(0, lambda: self.status_var.set("Status: Error"))
+            self.root.after(0, self._request_finished)
+            return
+
+        # --- File Download Logic ---
+        is_file_download = False
+        filename = None
+
+        content_disposition = response.headers.get('Content-Disposition')
+        if content_disposition and 'attachment' in content_disposition:
+            # Try to extract filename from Content-Disposition
+            try:
+                filename = content_disposition.split('filename=')[1].strip('"\'')
+                is_file_download = True
+            except IndexError:
+                pass # Fallback to content-type or URL
+
+        if not is_file_download:
+            content_type = response.headers.get('Content-Type', '').lower()
+            # Heuristic: if not text/html or application/json, assume it's a file
+            if 'text/html' not in content_type and 'application/json' not in content_type and 'text/plain' not in content_type:
+                is_file_download = True
+                # Generate filename from URL if not already found
+                if not filename:
+                    filename = os.path.basename(url.split('?')[0]) # Remove query params
+                    if not filename or '.' not in filename: # If no clear filename, use a generic one
+                        import datetime # Import datetime here as it's only needed for this specific case
+                        filename = "downloaded_file" + ('.' + content_type.split('/')[-1] if '/' in content_type else '')
+                        if filename == "downloaded_file": # Still generic, add a timestamp
+                            filename = f"downloaded_file_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        if is_file_download and filename:
+            download_dir = filedialog.askdirectory(initialdir=os.getcwd(), title="Select folder to save file")
+            if not download_dir: # User cancelled the dialog
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "File download cancelled by user.\n"))
+                self.root.after(0, lambda: self.status_var.set("Status: Download Cancelled"))
+                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed
+                response.close()
+                self.root.after(0, self._request_finished)
+                return
+
+            download_path = os.path.join(download_dir, filename)
+            total_size = int(response.headers.get('content-length', 0))
+            accept_ranges = response.headers.get('Accept-Ranges', '').lower()
+
+            # Check if multipart download is possible and beneficial
+            if total_size > 0 and accept_ranges == 'bytes':
+                response.close() # Close the initial response, as we'll make new requests for parts
+                multipart_success = self._download_file_multipart(full_url, headers, download_path, total_size, request_header_size, request_body_size, verify_ssl)
+                if multipart_success:
+                    # Final update for data info after download
+                    response_header_size = sum(len(k) + len(v) + 4 for k, v in headers.items()) + 2 # Re-estimate headers for multipart
+                    response_body_size = os.path.getsize(download_path) if os.path.exists(download_path) else 0
+                    self.root.after(0, lambda rbs=response_body_size: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(rbs)}"))
+                self.root.after(0, self._request_finished)
+                return # Exit after file download attempt
+            else:
+                # Fallback to single-part download if multipart is not supported or not beneficial
+                self.root.after(0, lambda: self.response_text.insert(tk.END, "Multipart download not supported or not applicable. Falling back to single-part.\n"))
+                try:
+                    bytes_received = 0
+                    start_time = time.time()
+
+                    with open(download_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if self.cancel_flag.is_set(): # Check for cancellation during download
+                                self.root.after(0, lambda: self.response_text.insert(tk.END, "\nFile download cancelled.\n"))
+                                self.root.after(0, lambda: self.status_var.set("Status: Download Cancelled"))
+                                self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A"))
+                                response.close()
+                                self.root.after(0, self._request_finished)
+                                return
+                            f.write(chunk)
+                            bytes_received += len(chunk)
+                            
+                            elapsed_time = time.time() - start_time
+                            if elapsed_time > 0:
+                                speed = bytes_received / elapsed_time # bytes per second
+                                self.root.after(0, lambda s=speed: self.download_speed_var.set(f"Speed: {self._format_bytes(s)}/s"))
+                            
+                            # Update Recv count
+                            self.root.after(0, lambda br=bytes_received: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(br)}"))
+
+                    self.root.after(0, lambda: self.response_text.insert(tk.END, f"File downloaded successfully to: {download_path}\n"))
+                    self.root.after(0, lambda: self.status_var.set(f"Status: Downloaded ({response.status_code})"))
+                    self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed after completion
+                except Exception as e:
+                    self.root.after(0, lambda e=e: self.response_text.insert(tk.END, f"Error downloading file: {e}\n"))
+                    self.root.after(0, lambda: self.status_var.set("Status: Download Error"))
+                    self.root.after(0, lambda: self.download_speed_var.set("Speed: N/A")) # Reset speed on error
+                finally:
+                    response.close() # Close the stream
+                
+                # Final update for data info after download
+                response_header_size = sum(len(k) + len(v) + 4 for k, v in response.headers.items()) + 2
+                response_body_size = os.path.getsize(download_path) if os.path.exists(download_path) else 0
+                self.root.after(0, lambda rbs=response_body_size: self.data_info_var.set(f"Sent: {request_header_size + request_body_size}B, Recv: {self._format_bytes(rbs)}"))
+                self.root.after(0, self._request_finished)
+                return # Exit after file download
 
 
 if __name__ == "__main__":
