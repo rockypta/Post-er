@@ -11,22 +11,26 @@ import math # For calculating part sizes
 
 class PostmanApp:
     def __init__(self, root):
+        background_color = "#34495E"
+        fieldbackground_color = "#4A6572"
+        active_button_color = "#5C7B8C"
+
         self.root = root
         self.root.title("Post-er")
-        self.root.configure(bg="#34495E") # Muted dark blue background
+        self.root.configure(bg=background_color) # Muted dark blue background
 
         # Configure ttk styles for muted dark blue background
         style = ttk.Style()
         style.theme_use('clam') # Use a theme that allows background customization
-        style.configure("TLabel", background="#34495E", foreground="white")
-        style.configure("TCombobox", fieldbackground="#4A6572", background="#34495E", foreground="white", selectbackground="#4A6572", selectforeground="white", font=('Arial', 10))
-        style.map("TCombobox", fieldbackground=[("readonly", "#4A6572")])
-        style.configure("TEntry", fieldbackground="#4A6572", foreground="white", insertbackground="white", font=('Arial', 10))
-        style.map("TEntry", fieldbackground=[("readonly", "#4A6572")])
-        style.configure("TButton", background="#4A6572", foreground="white", font=('Arial', 10, 'bold'), borderwidth=0) # Removed border for a flatter look
-        style.map("TButton", background=[('active', '#5C7B8C'), ('pressed', '#5C7B8C'), ('!pressed', '#4A6572')]) # Active/pressed state color
-        style.configure("Text", background="#4A6572", foreground="white", insertbackground="white") # For tk.Text widgets
-        style.configure("TFrame", background="#34495E") # For ttk.Frame
+        style.configure("TLabel", background=background_color, foreground="white")
+        style.configure("TCombobox", fieldbackground=background_color, background=background_color, foreground="white", selectbackground=background_color, selectforeground="white", font=('Arial', 10))
+        style.map("TCombobox", fieldbackground=[("readonly", background_color)])
+        style.configure("TEntry", fieldbackground=background_color, foreground="white", insertbackground="white", font=('Arial', 10))
+        style.map("TEntry", fieldbackground=[("readonly", background_color)])
+        style.configure("TButton", background=background_color, foreground="white", font=('Arial', 10, 'bold'), borderwidth=0) # Removed border for a flatter look
+        style.map("TButton", background=[('active', active_button_color), ('pressed', active_button_color), ('!pressed', fieldbackground_color)]) # Active/pressed state color
+        style.configure("Text", background=background_color, foreground="white", insertbackground="white") # For tk.Text widgets
+        style.configure("TFrame", background=background_color) # For ttk.Frame
 
         # Method
         self.method_var = tk.StringVar(value="GET")
@@ -53,12 +57,12 @@ class PostmanApp:
         self.content_frame.grid(row=1, column=1, rowspan=2, columnspan=5, padx=2, pady=2, sticky="nsew")
 
         # Request Headers
-        self.headers_text = tk.Text(self.content_frame, height=10, background="#4A6572", foreground="white", insertbackground="white")
+        self.headers_text = tk.Text(self.content_frame, height=10, background=background_color, foreground="white", insertbackground="white")
         self.headers_text.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
         self.headers_text.bind("<Tab>", self._on_header_text_tab)
 
         # Body for POST
-        self.body_text = tk.Text(self.content_frame, height=10, background="#4A6572", foreground="white", insertbackground="white")
+        self.body_text = tk.Text(self.content_frame, height=10, background=background_color, foreground="white", insertbackground="white")
         self.body_text.grid(row=0, column=0, padx=2, pady=2, sticky="nsew")
         self.body_text.bind("<Tab>", self._on_body_text_tab)
         self.body_text.bind("<Shift-Tab>", self._on_body_text_tab)
@@ -114,7 +118,7 @@ class PostmanApp:
         self.download_speed_var = tk.StringVar(value="Speed: N/A")
         self.download_speed_label = ttk.Label(self.root, textvariable=self.download_speed_var)
         self.download_speed_label.grid(row=6, column=4, columnspan=2, padx=5, pady=5, sticky="e") # New label
-        self.response_text = tk.Text(self.root, height=20, background="#4A6572", foreground="white", insertbackground="white")
+        self.response_text = tk.Text(self.root, height=20, background=background_color, foreground="white", insertbackground="white")
         self.response_text.grid(row=7, column=0, columnspan=6, padx=5, pady=5, sticky="nsew")
 
         self.root.grid_columnconfigure(1, weight=1)
